@@ -20,35 +20,35 @@ export async function scrapeNaverSearch(keyword: string): Promise<SearchResult[]
   const page = await context.newPage();
 
   try {
-    // 가장 확실한 검색 결과인 [웹문서] 탭 1~5페이지를 타겟팅합니다.
-    for (let pageNum = 1; pageNum <= 5; pageNum++) {
+    for (let pageNum = 1; pageNum <= 10; pageNum++) {
       const start = (pageNum - 1) * 15 + 1;
       const url = `https://search.naver.com/search.naver?where=web&query=${encodeURIComponent(keyword)}&start=${start}`;
 
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
-      await page.waitForTimeout(3000); // 네이버가 의심하지 않게 3초간 넉넉히 대기합니다.
+      await page.waitForTimeout(2000); 
 
       const html = await page.content();
       const $ = cheerio.load(html);
 
-      // [핵심] 특정 클래스명이 아니라, 검색 결과 영역(#main_pack) 안의 모든 '제목성 링크'를 다 긁습니다.
-      $("#main_pack a").each((_, el) => {
-        const href = $(el).attr("href") || "";
-        const title = $(el).text().trim();
+      // 🚨 핵심 수정: 개별 링크가 아니라 '결과 박스(.bx)'를 먼저 찾습니다.
+      const resultBlocks = $("#main_pack .bx, #main_pack .view_wrap, #main_pack .v_node");
+
+      if (resultBlocks.length === 0) break;
+
+      resultBlocks.each((_, el) => {
+        // 박스 안에서 가장 중요한 '진짜 제목 링크' 하나만 딱 집어냅니다.
+        const titleEl = $(el).find("a.link_tit, a.total_tit, .title_area a, .title_link").first();
+        const href = titleEl.attr("href") || "";
+        const title = titleEl.text().trim();
         
-        // 1. 네이버 내부 링크가 아니고 2. 제목이 3글자 이상이며 3. 실제 주소가 포함된 경우만 수집
-        if (
-          href.startsWith("http") && 
-          !href.includes("search.naver.com") && 
-          !href.includes("adcr.naver.com") && 
-          title.length > 2
-        ) {
-          // 중복 링크 방지
+        // 네이버 내부 주소가 아닌 진짜 외부 사이트인 경우만 카운트!
+        if (href.startsWith("http") && !href.includes("search.naver.com") && title.length > 0) {
+          // 이미 수집한 링크가 아니면 순위를 올립니다.
           if (!results.find(r => r.link === href)) {
             rank++;
             results.push({
               rank,
-              title: title.substring(0, 50), // 제목이 너무 길면 자름
+              title: title,
               link: href,
               domain: extractDomain(href),
               section: "웹결과",
@@ -70,17 +70,11 @@ function extractDomain(url: string): string {
   try {
     const hostname = new URL(url).hostname.toLowerCase();
     return hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
+  } catch { return ""; }
 }
 
 export function findSiteRank(results: SearchResult[], site: string) {
   const targetDomain = site.toLowerCase().replace(/^www\./, "");
-  // 도메인이 완전히 일치하거나, 해당 도메인으로 끝나는 경우(서브도메인 포함)를 찾습니다.
   const found = results.find(r => r.domain === targetDomain || r.domain.endsWith("." + targetDomain));
-  
-  return found 
-    ? { rank: found.rank, title: found.title, link: found.link, section: found.section }
-    : { rank: null, title: "", link: "", section: "" };
+  return found ? { rank: found.rank, title: found.title, link: found.link, section: found.section } : { rank: null, title: "", link: "", section: "" };
 }
