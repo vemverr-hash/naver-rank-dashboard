@@ -12,7 +12,7 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [days, setDays] = useState(7);
+  const [days, setDays] = useState(7); // 기본 7일
 
   useEffect(() => { fetchData(); }, [days]);
 
@@ -46,13 +46,18 @@ export default function DashboardPage() {
     return new Date(dateStr).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
   };
 
+  // 🚨 수정 포인트 1: .slice(0, 7)을 .slice(0, days)로 변경하여 선택한 기간만큼 보여줌
   const getDailyRanks = (ranks: RankEntry[]) => {
     const daily: Record<string, RankEntry> = {};
-    for (const r of ranks) {
+    // 날짜별로 가장 최신 순위 하나씩만 남기기
+    const sortedRanks = [...ranks].sort((a, b) => new Date(b.checked_at).getTime() - new Date(a.checked_at).getTime());
+    
+    for (const r of sortedRanks) {
       const dateKey = formatDate(r.checked_at);
       if (!daily[dateKey]) daily[dateKey] = r;
     }
-    return Object.entries(daily).sort(([a], [b]) => b.localeCompare(a)).slice(0, 7);
+    // 선택한 days만큼 자르기
+    return Object.entries(daily).sort(([a], [b]) => b.localeCompare(a)).slice(0, days);
   };
 
   const getRankChange = (ranks: RankEntry[]) => {
@@ -66,7 +71,7 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="border-b border-gray-200 bg-white sticky top-0 z-10 shadow-sm">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center">
               <span className="text-white text-sm font-bold">N</span>
@@ -88,91 +93,52 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8">
-        {loading && (
-          <div className="text-center py-20 text-gray-400">
-            <svg className="animate-spin h-6 w-6 mx-auto mb-3" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            데이터를 불러오는 중...
-          </div>
-        )}
-
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {loading && <div className="text-center py-20 text-gray-400">데이터를 불러오는 중...</div>}
         {error && <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">{error}</div>}
 
-        {!loading && data && data.sites.length === 0 && (
-          <div className="text-center py-20">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gray-100 flex items-center justify-center"><span className="text-3xl">📊</span></div>
-            <p className="text-gray-500 mb-2">등록된 키워드가 없습니다</p>
-            <Link href="/settings" className="inline-block px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm">키워드 등록하러 가기</Link>
-          </div>
-        )}
-
-        {!loading && data && data.sites.length > 0 && (
-          <div className="space-y-10">
-            {data.sites.map((siteData) => (
-              <section key={siteData.site}>
-                <div className="flex items-center gap-3 mb-5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <h2 className="text-base font-semibold text-gray-800">{siteData.site}</h2>
-                  <span className="text-xs text-gray-400">{siteData.keywords.length}개 키워드</span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {siteData.keywords.map((kw) => {
-                    const dailyRanks = getDailyRanks(kw.ranks);
-                    const change = getRankChange(kw.ranks);
-                    return (
-                      <div key={kw.id} className="p-4 bg-white border border-gray-200 rounded-xl shadow-sm">
-                        <div className="flex items-start justify-between mb-3">
-                          <div>
-                            <h3 className="text-sm font-semibold leading-tight text-gray-800">{kw.keyword}</h3>
-                            {dailyRanks.length > 0 && <span className="text-[10px] text-gray-400">{formatFull(dailyRanks[0][1].checked_at)}</span>}
-                          </div>
-                          {change !== null && (
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${change > 0 ? "bg-emerald-50 text-emerald-600" : change < 0 ? "bg-red-50 text-red-500" : "bg-gray-100 text-gray-400"}`}>
-                              {change > 0 ? `▲${change}` : change < 0 ? `▼${Math.abs(change)}` : "−"}
-                            </span>
-                          )}
-                        </div>
-                        {dailyRanks.length > 0 ? (
-                          <>
-                            <div className="flex gap-1 mb-1.5">
-                              {dailyRanks.map(([date]) => (<span key={date} className="flex-1 text-center text-[10px] text-gray-400">{date}</span>))}
-                            </div>
-                            <div className="flex gap-1">
-                              {dailyRanks.map(([date, entry]) => (
-                                <span key={date} className={`flex-1 text-center py-1.5 rounded-md text-xs border ${getRankStyle(entry.rank)}`}
-                                  title={entry.rank ? `${entry.rank}위 - ${entry.title}` : "순위권 밖"}>
-                                  {entry.rank ? `${entry.rank}위` : "—"}
-                                </span>
-                              ))}
-                            </div>
-                          </>
-                        ) : (
-                          <div className="text-center py-4 text-xs text-gray-400">아직 순위 데이터 없음</div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-
-        {!loading && data && data.sites.length > 0 && (
-          <div className="mt-10 pt-6 border-t border-gray-200">
-            <div className="flex flex-wrap gap-4 text-xs text-gray-400">
-              <span className="flex items-center gap-1.5"><span className="inline-block w-7 text-center py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] border border-emerald-200">3위</span>1~3위</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-7 text-center py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] border border-blue-200">7위</span>4~10위</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-7 text-center py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] border border-amber-200">25</span>21~30위</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-7 text-center py-0.5 rounded bg-red-50 text-red-600 text-[10px] border border-red-200">51</span>50위+</span>
-              <span className="flex items-center gap-1.5"><span className="text-emerald-500">▲</span>순위 상승</span>
-              <span className="flex items-center gap-1.5"><span className="text-red-500">▼</span>순위 하락</span>
+        {!loading && data && data.sites.map((siteData) => (
+          <section key={siteData.site} className="mb-10">
+            <div className="flex items-center gap-3 mb-5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+              <h2 className="text-base font-semibold text-gray-800">{siteData.site}</h2>
             </div>
-          </div>
-        )}
+            <div className="grid grid-cols-1 gap-4">
+              {siteData.keywords.map((kw) => {
+                const dailyRanks = getDailyRanks(kw.ranks);
+                const change = getRankChange(kw.ranks);
+                return (
+                  <div key={kw.id} className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-800">{kw.keyword}</h3>
+                        {dailyRanks.length > 0 && <span className="text-[10px] text-gray-400">{formatFull(dailyRanks[0][1].checked_at)}</span>}
+                      </div>
+                      {change !== null && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${change > 0 ? "bg-emerald-50 text-emerald-600" : change < 0 ? "bg-red-50 text-red-500" : "bg-gray-100 text-gray-400"}`}>
+                          {change > 0 ? `▲${change}` : change < 0 ? `▼${Math.abs(change)}` : "−"}
+                        </span>
+                      )}
+                    </div>
+                    {/* 🚨 수정 포인트 2: 가로 스크롤 가능하게 변경 (30일 치 데이터 대비) */}
+                    <div className="overflow-x-auto pb-2">
+                      <div className="flex gap-1.5 min-w-max">
+                        {dailyRanks.map(([date, entry]) => (
+                          <div key={date} className="flex flex-col items-center gap-1 w-12">
+                            <span className="text-[10px] text-gray-400">{date}</span>
+                            <span className={`w-full text-center py-2 rounded-md text-[11px] border ${getRankStyle(entry.rank)}`} title={entry.title}>
+                              {entry.rank ? `${entry.rank}` : "—"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </main>
     </div>
   );
