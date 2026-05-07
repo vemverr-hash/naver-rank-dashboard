@@ -15,7 +15,7 @@ export async function scrapeNaverSearch(keyword: string): Promise<SearchResult[]
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   });
   const page = await context.newPage();
 
@@ -30,27 +30,33 @@ export async function scrapeNaverSearch(keyword: string): Promise<SearchResult[]
       const html = await page.content();
       const $ = cheerio.load(html);
 
-      // 🚨 최종 정답: 껍데기를 찾지 않고, 메인 제목(가장 큰 글씨)에만 붙는 고유 이름표들을 직통으로 찾습니다!
-      // 이렇게 하면 밑에 주렁주렁 달린 서브 링크들은 완벽하게 무시됩니다.
-      const mainTitles = $("#main_pack a.link_tit, #main_pack .total_tit a, #main_pack a.total_tit, #main_pack .title_link, #main_pack .title_area a");
+      // 1. 네이버 검색 결과의 큰 덩어리(리스트 블록)들을 모두 잡습니다.
+      const blocks = $("#main_pack .bx, #main_pack .api_ani_send, #main_pack li");
 
-      if (mainTitles.length === 0) break;
-
-      mainTitles.each((_, el) => {
-        const href = $(el).attr("href") || "";
-        const title = $(el).text().trim();
+      blocks.each((_, el) => {
+        // 2. 블록 안의 모든 링크(a 태그)를 순서대로 꺼냅니다.
+        const links = $(el).find("a").toArray();
         
-        // 네이버 내부 주소가 아닌 진짜 외부 사이트인 경우만
-        if (href.startsWith("http") && !href.includes("search.naver.com") && title.length > 0) {
-          if (!results.find(r => r.link === href)) {
-            rank++; // 메인 제목 1개당 정확히 1위씩만 올라갑니다.
-            results.push({
-              rank,
-              title: title,
-              link: href,
-              domain: extractDomain(href),
-              section: "웹결과",
-            });
+        for (const a of links) {
+          const href = $(a).attr("href") || "";
+          const title = $(a).text().trim();
+
+          // 3. 네이버 내부 주소가 아닌 '외부 웹사이트 링크'이면서 글자가 있는 것을 찾습니다.
+          if (href.startsWith("http") && !href.includes("naver.com") && title.length > 1) {
+            
+            // 4. 이 블록에서 '처음' 발견된 외부 링크만 진짜 순위로 인정!
+            if (!results.find(r => r.link === href)) {
+              rank++;
+              results.push({
+                rank,
+                title: title.substring(0, 50),
+                link: href,
+                domain: extractDomain(href),
+                section: "웹결과",
+              });
+            }
+            // 🚨 핵심: 메인 제목을 찾았으니, 밑에 달린 서브 링크들은 쳐다보지도 않고 다음 블록으로 넘어갑니다. (뻥튀기 방지)
+            break; 
           }
         }
       });
