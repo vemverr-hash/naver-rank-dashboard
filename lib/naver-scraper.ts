@@ -19,43 +19,42 @@ export async function scrapeNaverSearch(keyword: string): Promise<SearchResult[]
   });
   const page = await context.newPage();
 
-try {
-      for (let pageNum = 1; pageNum <= 10; pageNum++) {
-        const start = (pageNum - 1) * 15 + 1;
-        const url = `https://search.naver.com/search.naver?where=web&query=${encodeURIComponent(keyword)}&start=${start}`;
+  try {
+    for (let pageNum = 1; pageNum <= 10; pageNum++) {
+      const start = (pageNum - 1) * 15 + 1;
+      const url = `https://search.naver.com/search.naver?where=web&query=${encodeURIComponent(keyword)}&start=${start}`;
 
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
-        await page.waitForTimeout(2000); 
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+      await page.waitForTimeout(2000); 
 
-        const html = await page.content();
-        const $ = cheerio.load(html);
+      const html = await page.content();
+      const $ = cheerio.load(html);
 
-        // 🚨 핀셋 수정: [웹문서] 탭의 정통 검색 결과 리스트(ul.lst_total 하위의 li.bx)만 정확히 타겟팅!
-        // 이렇게 하면 연관검색어나 이상한 추천 블록들을 아예 무시합니다.
-        const resultBlocks = $("ul.lst_total > li.bx");
+      // 🚨 최종 정답: 껍데기를 찾지 않고, 메인 제목(가장 큰 글씨)에만 붙는 고유 이름표들을 직통으로 찾습니다!
+      // 이렇게 하면 밑에 주렁주렁 달린 서브 링크들은 완벽하게 무시됩니다.
+      const mainTitles = $("#main_pack a.link_tit, #main_pack .total_tit a, #main_pack a.total_tit, #main_pack .title_link, #main_pack .title_area a");
 
-        if (resultBlocks.length === 0) break;
+      if (mainTitles.length === 0) break;
 
-        resultBlocks.each((_, el) => {
-          // 각 결과 박스에서 가장 대표가 되는 제목 링크 하나만 추출
-          const titleEl = $(el).find(".total_tit a, .link_tit, .title_link").first();
-          const href = titleEl.attr("href") || "";
-          const title = titleEl.text().trim();
-          
-          if (href.startsWith("http") && !href.includes("search.naver.com") && title.length > 0) {
-            if (!results.find(r => r.link === href)) {
-              rank++;
-              results.push({
-                rank,
-                title: title,
-                link: href,
-                domain: extractDomain(href),
-                section: "웹결과",
-              });
-            }
+      mainTitles.each((_, el) => {
+        const href = $(el).attr("href") || "";
+        const title = $(el).text().trim();
+        
+        // 네이버 내부 주소가 아닌 진짜 외부 사이트인 경우만
+        if (href.startsWith("http") && !href.includes("search.naver.com") && title.length > 0) {
+          if (!results.find(r => r.link === href)) {
+            rank++; // 메인 제목 1개당 정확히 1위씩만 올라갑니다.
+            results.push({
+              rank,
+              title: title,
+              link: href,
+              domain: extractDomain(href),
+              section: "웹결과",
+            });
           }
-        });
-      }
+        }
+      });
+    }
   } catch (error) {
     console.error("Scraping failed:", error);
   } finally {
