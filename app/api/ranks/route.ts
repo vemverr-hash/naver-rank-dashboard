@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   const since = new Date();
   since.setDate(since.getDate() - days);
 
-  // 키워드 정보와 순위 기록을 함께 가져오기
+  // 키워드 정보 가져오기
   const { data: keywords, error: kwError } = await supabase
     .from("keywords")
     .select("*")
@@ -17,11 +17,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: kwError.message }, { status: 500 });
   }
 
+  // 🚨 순위 기록 가져오기 (가방 크기 제한 10,000개로 대폭 확장!)
   const { data: ranks, error: rankError } = await supabase
     .from("ranks")
     .select("*")
     .gte("checked_at", since.toISOString())
-    .order("checked_at", { ascending: false });
+    .order("checked_at", { ascending: false })
+    .limit(10000); // <-- 바로 이 빗장을 풀어야 과거 데이터가 다 옵니다!
 
   if (rankError) {
     return NextResponse.json({ error: rankError.message }, { status: 500 });
