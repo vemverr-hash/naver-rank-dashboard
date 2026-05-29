@@ -1,84 +1,125 @@
-import * as cheerio from "cheerio";
-import { chromium } from "playwright";
+import { chromium } from 'playwright';
 
-export interface SearchResult {
+// 순위 결과 반환 타입 정의
+export interface RankResult {
   rank: number;
-  title: string;
-  link: string;
-  domain: string;
-  section: string;
+  debugLog?: string[];
+  error?: string;
 }
 
-export async function scrapeNaverSearch(keyword: string): Promise<SearchResult[]> {
-  const results: SearchResult[] = [];
-  let rank = 0;
-
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  });
-  const page = await context.newPage();
-
+export async function checkNaverMobileRank(keyword: string, targetDomain: string): Promise<RankResult> {
+  let browser;
   try {
-    for (let pageNum = 1; pageNum <= 10; pageNum++) {
-      const start = (pageNum - 1) * 15 + 1;
-      const url = `https://search.naver.com/search.naver?where=web&query=${encodeURIComponent(keyword)}&start=${start}`;
+    console.log("⏳ 1. 브라우저 엔진 가동 중 (최종 노이즈 제거)...");
+    browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+      viewport: { width: 390, height: 844 }
+    });
+    
+    const page = await context.newPage();
 
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
-      await page.waitForTimeout(2000); 
+    // 속도 향상을 위해 이미지와 폰트만 조용히 차단
+    await page.route("**/*", (route) => {
+      const type = route.request().resourceType();
+      if (["image", "media", "font", "stylesheet"].includes(type)) {
+        route.abort();
+      } else {
+        route.continue();
+      }
+    });
 
-      const html = await page.content();
-      const $ = cheerio.load(html);
+    const url = `https://m.search.naver.com/search.naver?query=${encodeURIComponent(keyword)}`;
+    console.log(`⏳ 2. [${keyword}] 네이버 검색 및 결과 수집 중...`);
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    
+    // 3번 스크롤하며 대기 (비동기 처리)
+    for (let i = 0; i < 3; i++) {
+      await page.mouse.wheel(0, 1500);
+      await page.waitForTimeout(500);
+    }
 
-      // 1. 네이버 검색 결과의 큰 덩어리(리스트 블록)들을 모두 잡습니다.
-      const blocks = $("#main_pack .bx, #main_pack .api_ani_send, #main_pack li");
+    console.log("⏳ 3. 외부 링크가 없는 껍데기 완벽 소각 중...");
+    
+    const resultData = await page.evaluate((domain) => {
+      const selectors = 'li.bx, div.total_wrap, div.api_ani_send, li.place_list_item, div.api_subject_bx';
+      const rawBlocks = Array.from(document.querySelectorAll(selectors));
+      const leafBlocks: Element[] = [];
 
-      blocks.each((_, el) => {
-        // 2. 블록 안의 모든 링크(a 태그)를 순서대로 꺼냅니다.
-        const links = $(el).find("a").toArray();
+      // 1. 포장지 제거 (가장 안쪽 알맹이 상자만 남김)
+      rawBlocks.forEach(block => {
+        let hasChildBlock = false;
+        const children = block.querySelectorAll(selectors);
         
-        for (const a of links) {
-          const href = $(a).attr("href") || "";
-          const title = $(a).text().trim();
-
-          // 3. 네이버 내부 주소가 아닌 '외부 웹사이트 링크'이면서 글자가 있는 것을 찾습니다.
-          if (href.startsWith("http") && !href.includes("naver.com") && title.length > 1) {
-            
-            // 4. 이 블록에서 '처음' 발견된 외부 링크만 진짜 순위로 인정!
-            if (!results.find(r => r.link === href)) {
-              rank++;
-              results.push({
-                rank,
-                title: title.substring(0, 50),
-                link: href,
-                domain: extractDomain(href),
-                section: "웹결과",
-              });
-            }
-            // 🚨 핵심: 메인 제목을 찾았으니, 밑에 달린 서브 링크들은 쳐다보지도 않고 다음 블록으로 넘어갑니다. (뻥튀기 방지)
-            break; 
+        for(let i = 0; i < children.length; i++) {
+          if ((children[i].textContent || "").trim().length > 5) {
+            hasChildBlock = true;
+            break;
           }
         }
+
+        if (!hasChildBlock && (block.textContent || "").trim().length > 10) {
+          leafBlocks.push(block);
+        }
       });
-    }
-  } catch (error) {
-    console.error("Scraping failed:", error);
-  } finally {
+
+      let rank = 0;
+      let foundRank = -1;
+      const debugLog: string[] = [];
+
+      leafBlocks.forEach(block => {
+        const text = (block.textContent || "").trim().replace(/\n/g, ' ');
+        const html = block.innerHTML || "";
+
+        // 2. 명시적 쓰레기 필터링
+        if (text.includes('관련검색어') && text.length < 100) return; 
+
+        // 3. 광고 상자 투명인간 처리
+        let isAd = false;
+        block.querySelectorAll('a').forEach(a => {
+          const h = a.href || "";
+          if (h.includes('adcr.naver') || h.includes('ader.naver') || h.includes('ad.naver')) isAd = true;
+        });
+        
+        block.querySelectorAll('span, i, em, mark, div').forEach(b => {
+          if (b.children.length === 0) {
+            const bt = (b.textContent || "").trim();
+            if (bt === '광고ⓘ' || bt === '파워링크' || bt === '광고') isAd = true;
+          }
+        });
+        if (isAd) return;
+
+        // 4. [핵심] 밖으로 나가는 '진짜 링크' 검증
+        const links = Array.from(block.querySelectorAll<HTMLAnchorElement>('a[href^="http"]'));
+        const validLinks = links.filter(a => {
+          const h = a.href;
+          return !h.includes('search.naver.com') && 
+                 !h.includes('help.naver.com') && 
+                 !h.includes('nid.naver.com') &&
+                 !h.includes('policy.naver.com');
+        });
+
+        if (validLinks.length === 0) return;
+
+        const primaryLink = validLinks[0];
+        const host = new URL(primaryLink.href).hostname;
+
+        rank++;
+        debugLog.push(`[${rank}위] ` + text.substring(0, 45) + '... (도메인: ' + host + ')');
+
+        if (foundRank === -1 && (html.includes(domain) || text.includes(domain))) {
+          foundRank = rank;
+        }
+      });
+
+      return { rank: foundRank, debugLog };
+    }, targetDomain);
+
     await browser.close();
+    return resultData;
+    
+  } catch (error: any) {
+    if (browser) await browser.close();
+    return { rank: -1, error: error.message };
   }
-
-  return results;
-}
-
-function extractDomain(url: string): string {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return hostname.replace(/^www\./, "");
-  } catch { return ""; }
-}
-
-export function findSiteRank(results: SearchResult[], site: string) {
-  const targetDomain = site.toLowerCase().replace(/^www\./, "");
-  const found = results.find(r => r.domain === targetDomain || r.domain.endsWith("." + targetDomain));
-  return found ? { rank: found.rank, title: found.title, link: found.link, section: found.section } : { rank: null, title: "", link: "", section: "" };
 }

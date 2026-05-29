@@ -1,59 +1,63 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
-export async function GET(req: NextRequest) {
-  const days = parseInt(req.nextUrl.searchParams.get("days") || "7");
+// Supabase DB 연결
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-  const since = new Date();
-  since.setDate(since.getDate() - days);
+export async function GET(request: Request) {
+  try {
+    // 1. 대시보드에서 요청한 '며칠 치(days)' 데이터를 볼 것인지 파악 (기본 7일)
+    const { searchParams } = new URL(request.url);
+    const days = parseInt(searchParams.get('days') || '7', 10);
 
-  // 키워드 정보 가져오기
-  const { data: keywords, error: kwError } = await supabase
-    .from("keywords")
-    .select("*")
-    .order("site", { ascending: true });
+    // 2. DB에서 추적 중인 키워드 목록 가져오기
+    const { data: keywords, error: kwError } = await supabase.from('keywords').select('*');
+    if (kwError) throw kwError;
 
-  if (kwError) {
-    return NextResponse.json({ error: kwError.message }, { status: 500 });
-  }
+    // 3. DB에서 날짜 필터링해서 순위 기록(ranks) 가져오기
+    const dateLimit = new Date();
+    dateLimit.setDate(dateLimit.getDate() - days);
 
-  // 🚨 순위 기록 가져오기 (가방 크기 제한 10,000개로 대폭 확장!)
-  const { data: ranks, error: rankError } = await supabase
-    .from("ranks")
-    .select("*")
-    .gte("checked_at", since.toISOString())
-    .order("checked_at", { ascending: false })
-    .limit(10000); // <-- 바로 이 빗장을 풀어야 과거 데이터가 다 옵니다!
+    const { data: ranks, error: rankError } = await supabase
+      .from('ranks')
+      .select('*')
+      .gte('checked_at', dateLimit.toISOString())
+      .order('checked_at', { ascending: false });
 
-  if (rankError) {
-    return NextResponse.json({ error: rankError.message }, { status: 500 });
-  }
+    if (rankError) throw rankError;
 
-  // 사이트별로 그룹핑
-  const sites: Record<string, any> = {};
+    // 4. 대시보드 화면(UI)이 원하는 형태로 데이터 조립하기 (도메인별 -> 키워드별 -> 순위)
+    const sitesMap: Record<string, any> = {};
 
-  for (const kw of keywords || []) {
-    if (!sites[kw.site]) {
-      sites[kw.site] = { site: kw.site, keywords: [] };
-    }
-
-    const kwRanks = (ranks || [])
-      .filter((r) => r.keyword_id === kw.id)
-      .map((r) => ({
-        rank: r.rank,
-        checked_at: r.checked_at,
-        title: r.title,
-      }));
-
-    sites[kw.site].keywords.push({
-      id: kw.id,
-      keyword: kw.keyword,
-      ranks: kwRanks,
+    keywords.forEach(kw => {
+      const siteName = kw.domain; // 도메인 이름을 그룹명으로 사용
+      if (!sitesMap[siteName]) {
+        sitesMap[siteName] = { site: siteName, keywords: [] };
+      }
+      
+      // 이 키워드에 해당하는 순위 기록들만 모으기
+      const kwRanks = ranks.filter(r => r.keyword_id === kw.id);
+      
+      sitesMap[siteName].keywords.push({
+        id: kw.id,
+        keyword: kw.keyword,
+        ranks: kwRanks
+      });
     });
-  }
 
-  return NextResponse.json({
-    sites: Object.values(sites),
-    totalKeywords: keywords?.length || 0,
-  });
+    // 최종 결과물 포장
+    const dashboardData = {
+      sites: Object.values(sitesMap),
+      totalKeywords: keywords.length
+    };
+
+    // 5. 대시보드 화면으로 데이터 쏴주기!
+    return NextResponse.json(dashboardData, { status: 200 });
+
+  } catch (error: any) {
+    console.error("데이터 조회 에러:", error);
+    return NextResponse.json({ error: error.message || "서버 에러가 발생했습니다." }, { status: 500 });
+  }
 }
