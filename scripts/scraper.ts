@@ -39,19 +39,16 @@ async function main() {
     console.log(`\n🔍 [${kw.keyword}] (타겟: ${kw.site}) 탐색 시작 (최대 10페이지)...`);
     
     try {
-      // 웹사이트 탭(m_webkr)으로 직행
       const url = `https://m.search.naver.com/search.naver?where=m_webkr&query=${encodeURIComponent(kw.keyword)}`;
       await page.goto(url, { waitUntil: "domcontentloaded" });
       
-      let cumulativeRank = 0; // 페이지가 넘어가도 순위가 누적되도록 하는 변수
-      let foundRank = null;
+      let cumulativeRank = 0; 
+      let foundRank = -1; // ✅ 타입 오류 해결을 위해 -1로 시작
       let finalTitle = "순위권 밖";
 
-      // 💡 [핵심] 1페이지부터 10페이지까지 반복하며 찾기
       for (let pageNum = 1; pageNum <= 10; pageNum++) {
-        await page.waitForTimeout(1000); // 페이지 로딩 대기
+        await page.waitForTimeout(1000); 
         
-        // 스크롤을 맨 아래로 내려서 모든 요소 렌더링 유도
         await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
         await page.waitForTimeout(500);
 
@@ -107,7 +104,7 @@ async function main() {
 
             if (validLinks.length === 0) return;
 
-            rank++; // 순위 증가
+            rank++; 
 
             if (html.includes(targetDomain) || text.includes(targetDomain)) {
               isFound = true;
@@ -122,23 +119,21 @@ async function main() {
           foundRank = pageResult.rank;
           finalTitle = pageResult.foundTitle;
           console.log(`   🎉 ${pageNum}페이지에서 발견! (${foundRank}위)`);
-          break; // 찾았으니 다음 페이지로 안 넘어가고 탐색 종료!
+          break; 
         } else {
-          cumulativeRank += pageResult.count; // 이번 페이지의 순위 개수를 누적
+          cumulativeRank += pageResult.count; 
         }
 
-        // 못 찾았다면 '다음(>)' 버튼 찾아서 클릭하기
         const nextBtn = await page.$('.pg_next, .btn_next, a.next, a[title="다음"], .paginate_next');
         if (nextBtn) {
           console.log(`   - ${pageNum}페이지에 없음. 다음 페이지로 이동...`);
           await nextBtn.click();
-          await page.waitForTimeout(2000); // 새 페이지가 뜰 때까지 2초 대기
+          await page.waitForTimeout(2000); 
         } else {
-          break; // 다음 버튼이 없으면 더 이상 페이지가 없는 것이므로 탐색 종료
+          break; 
         }
       }
 
-      // 5. 판독된 순위를 DB에 저장
       const rankToSave = foundRank > 0 ? foundRank : null;
       
       const { error: insertError } = await supabase.from('ranks').insert({
