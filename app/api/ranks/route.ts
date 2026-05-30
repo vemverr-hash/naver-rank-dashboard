@@ -1,13 +1,20 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Supabase DB 연결
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
-
 export async function GET(request: Request) {
   try {
+    // 💡 핵심 해결책: DB 연결을 맨 위가 아니라 함수 '안'으로 이동!
+    // 이렇게 하면 Next.js가 빌드(테스트)할 때 에러를 뿜지 않습니다.
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+    
+    // 환경변수가 없을 때 뻗지 않고 안전하게 에러를 뱉도록 방어막 추가
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json({ error: "DB 열쇠가 설정되지 않았습니다." }, { status: 500 });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     // 1. 대시보드에서 요청한 '며칠 치(days)' 데이터를 볼 것인지 파악 (기본 7일)
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '7', 10);
@@ -32,12 +39,11 @@ export async function GET(request: Request) {
     const sitesMap: Record<string, any> = {};
 
     keywords.forEach(kw => {
-      const siteName = kw.domain; // 도메인 이름을 그룹명으로 사용
+      const siteName = kw.domain; 
       if (!sitesMap[siteName]) {
         sitesMap[siteName] = { site: siteName, keywords: [] };
       }
       
-      // 이 키워드에 해당하는 순위 기록들만 모으기
       const kwRanks = ranks.filter(r => r.keyword_id === kw.id);
       
       sitesMap[siteName].keywords.push({
@@ -47,7 +53,6 @@ export async function GET(request: Request) {
       });
     });
 
-    // 최종 결과물 포장
     const dashboardData = {
       sites: Object.values(sitesMap),
       totalKeywords: keywords.length
