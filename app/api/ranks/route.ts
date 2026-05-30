@@ -3,12 +3,9 @@ import { createClient } from '@supabase/supabase-js';
 
 export async function GET(request: Request) {
   try {
-    // 💡 핵심 해결책: DB 연결을 맨 위가 아니라 함수 '안'으로 이동!
-    // 이렇게 하면 Next.js가 빌드(테스트)할 때 에러를 뿜지 않습니다.
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
     
-    // 환경변수가 없을 때 뻗지 않고 안전하게 에러를 뱉도록 방어막 추가
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json({ error: "DB 열쇠가 설정되지 않았습니다." }, { status: 500 });
     }
@@ -35,11 +32,13 @@ export async function GET(request: Request) {
 
     if (rankError) throw rankError;
 
-    // 4. 대시보드 화면(UI)이 원하는 형태로 데이터 조립하기 (도메인별 -> 키워드별 -> 순위)
+    // 4. 사이트별로 키워드 묶어주기 (그룹화 로직)
     const sitesMap: Record<string, any> = {};
 
     keywords.forEach(kw => {
-      const siteName = kw.domain; 
+      // 💡 여기서 도메인 이름을 제대로 꺼내오도록 수정했습니다! (kw.domain -> kw.site)
+      const siteName = kw.site || "알 수 없는 사이트"; 
+      
       if (!sitesMap[siteName]) {
         sitesMap[siteName] = { site: siteName, keywords: [] };
       }
