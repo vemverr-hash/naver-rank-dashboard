@@ -39,7 +39,8 @@ async function main() {
 
   // 4. 키워드별로 순회하며 순위 판독 시작
   for (const kw of keywords) {
-    console.log(`\n🔍 [${kw.keyword}] (타겟: ${kw.domain}) 탐색 시작...`);
+    // 💡 수정 완료: kw.domain -> kw.site
+    console.log(`\n🔍 [${kw.keyword}] (타겟: ${kw.site}) 탐색 시작...`);
     
     try {
       const url = `https://m.search.naver.com/search.naver?query=${encodeURIComponent(kw.keyword)}`;
@@ -122,7 +123,7 @@ async function main() {
         });
 
         return { rank: foundRank, title: finalTitle };
-      }, kw.domain); // DB에 저장된 도메인(`kw.domain`)을 봇에게 전달
+      }, kw.site); // 💡 수정 완료: DB에 저장된 도메인(`kw.site`)을 봇에게 전달
 
       // 5. 판독된 순위를 DB(`ranks` 테이블)에 바로 저장
       const rankToSave = resultData.rank > 0 ? resultData.rank : null;
