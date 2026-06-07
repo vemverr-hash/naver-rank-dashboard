@@ -4,7 +4,11 @@ on:
   schedule:
     # 30분마다 실행하는 마법의 주문입니다.
     - cron: '*/30 * * * *'
-  workflow_dispatch: # 수동으로 바로 실행할 수 있는 버튼 추가!
+  workflow_dispatch: # 수동으로 바로 실행할 수 있는 버튼 추가! 
+  
+  # 👇 외부 알람(cron-job.org) 수신을 위해 추가된 코드입니다!
+  repository_dispatch:
+    types: [trigger-scraper]
 
 jobs:
   scrape-and-save:
